@@ -1,15 +1,12 @@
-/* ── Sidebar ── */
-
 .sidebar {
-  width: var(--guild-text-w, 200px);
-  min-width: 120px;
-  max-width: 360px;
+  width: var(--guild-text-w, 220px);
+  min-width: 140px;
+  max-width: 380px;
   position: relative;
   background: var(--bg-base-secondary, var(--background-secondary, #f2f3f5));
   display: flex;
   flex-direction: column;
 }
-
 
 .sidebar [class*="folderGroup"] {
   width: 100%;
@@ -22,7 +19,11 @@
   display: none !important;
 }
 
-/* ── Hidden items (discover, add server, download) ── */
+/* reserve space so the last rows scroll clear of the pinned Add Server
+   instead of sliding underneath it */
+.sidebar [role="group"][aria-label="Servers"] {
+  padding-bottom: 48px;
+}
 
 .hiddenItem {
   display: none !important;
@@ -35,32 +36,11 @@
   display: none !important;
 }
 
-/* ── Override Discord circle buttons (Add Server etc) ── */
-
-:global(nav[aria-label="Servers sidebar"]) .guildRow:global([class*="circleIconButton"]) {
-  width: calc(100% - 16px) !important;
-  height: 28px !important;
-  border-radius: 4px !important;
-  background-color: transparent !important;
-  color: var(--channels-default, var(--text-normal, #5c5e66)) !important;
+/* unread "pill" can sit just outside the row element, so hide it nav-wide;
+   we re-derive unread state from its presence via :has() below */
+:global(nav[aria-label="Servers sidebar"]) [class*="pill"] {
+  display: none !important;
 }
-
-/* Pin Add Server above user panel */
-.addServerBottom {
-  position: absolute;
-  bottom: 52px;
-  left: 0;
-  right: 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: inherit;
-  z-index: 20;
-  height: 32px;
-  margin: 0 !important;
-  border-radius: 0 !important;
-  width: 100% !important;
-}
-
-/* ── Resize handle ── */
 
 .resizeHandle {
   position: absolute;
@@ -90,49 +70,82 @@
   opacity: 0.5;
 }
 
-/* ── Guild row ── */
-
 .guildRow {
   width: calc(100% - 16px);
-  color: var(--channels-default, var(--text-normal, #5c5e66));
-  cursor: pointer;
+  box-sizing: border-box;
+  height: 34px;
+  margin: 1px 8px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
-  box-sizing: border-box;
-  height: 28px;
-  padding: 0 8px;
   gap: 8px;
-  margin: 1px 8px;
-  border-radius: 4px;
-  transition: background-color 150ms ease;
+  border-radius: 6px;
+  color: var(--interactive-normal, var(--channels-default, #4e5058));
+  cursor: pointer;
   position: relative;
 }
 
+/* Discord semantic vars resolve per-theme; rgba fallbacks are tuned for light */
 .guildRow:hover {
-  background-color: rgba(0, 0, 0, 0.04);
-  color: var(--text-normal, #313338);
+  background-color: var(--background-modifier-hover, rgba(0, 0, 0, 0.04));
+  color: var(--interactive-hover, var(--text-normal, #2e3338));
 }
 
+/* selection mirrors the Settings sidebar: a calm filled rounded rect, no bar */
 .guildRow[aria-selected="true"],
 .guildRow[data-is-selected="true"] {
-  background-color: rgba(0, 0, 0, 0.04);
-  color: var(--text-normal, #313338);
-  font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--text-normal, #313338);
+  background-color: var(--background-modifier-selected, rgba(0, 0, 0, 0.08));
+  color: var(--interactive-active, var(--header-primary, #060607));
 }
 
-/* ── Unread indicator ── */
-
-.guildRow [class*="pill"] [class*="item"] {
-  background-color: currentColor;
+/* reserved leading slot keeps every label aligned whether read or unread */
+.guildRow::before {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-500, #5865f2);
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
 
-/* hide pill on folder rows */
-.folderRow [class*="pill"] {
-  display: none !important;
+.folderRow::before {
+  display: none;
 }
 
-/* badge count (DMs etc) — keep visible inline */
+/* a present pill element means unread → reveal dot and darken the label */
+.guildRow:has([class*="pill"])::before {
+  opacity: 1;
+}
+
+.guildRow:has([class*="pill"]) .guildLabel {
+  color: var(--interactive-active, var(--header-primary, #060607));
+}
+
+/* folder children are custom-rendered without a pill, so JS flags unread/mentions */
+.guildRow[data-gtl-unread="true"]::before {
+  opacity: 1;
+}
+
+.guildRow[data-gtl-unread="true"] .guildLabel {
+  color: var(--interactive-active, var(--header-primary, #060607));
+}
+
+.mentionBadge {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--status-danger, #d83a42);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
 .guildRow [class*="numberBadge"],
 .guildRow [class*="badge"] {
   font-size: 10px;
@@ -144,11 +157,9 @@
   flex-shrink: 0;
 }
 
-/* ── Guild label ── */
-
 .guildLabel {
-  font-size: 13px;
-  line-height: 28px;
+  font-size: 15px;
+  line-height: 34px;
   font-weight: 500;
   color: inherit;
   flex: 1;
@@ -164,18 +175,19 @@
   cursor: grabbing;
 }
 
-/* ── Folder header ── */
-
+/* folder header styled as a Settings-style section label with a divider above */
 .folderRow {
-  width: 100% !important;
-  align-self: stretch;
+  width: calc(100% - 16px) !important;
+  box-sizing: border-box;
   cursor: pointer;
-  height: 24px;
-  margin-top: 12px;
-  margin-bottom: 2px;
-  padding: 0 8px;
+  min-height: 24px;
+  margin: 8px 8px 2px;
+  padding: 14px 4px 2px;
+  border-top: 1px solid var(--background-modifier-accent, rgba(0, 0, 0, 0.06));
   border-radius: 0;
   background: none;
+  display: flex;
+  align-items: center;
 }
 
 .folderRow:hover {
@@ -185,13 +197,13 @@
 .folderLabel {
   display: inline-flex;
   align-items: center;
-  gap: 0;
-  font-size: 11px;
-  line-height: 24px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--channels-default, var(--text-muted, #80848e));
+  color: var(--channels-default, var(--text-muted, #6d6f78));
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -200,46 +212,51 @@
   pointer-events: auto;
   user-select: none;
   cursor: pointer;
-  transition: color 150ms ease;
+  transition: color 120ms ease;
   padding: 0;
 }
 
 .folderRow:hover .folderLabel {
-  color: var(--text-normal, #313338);
+  color: var(--text-normal, #2e3338);
 }
 
 .folderCaret {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* caret SVG points right when collapsed; rotate to point down when open */
+.folderExpanded .folderCaret {
+  transform: rotate(90deg);
 }
 
 .folderIconHidden {
   display: none;
 }
 
-/* ── Folder children ── */
-
 .folderChildren {
   padding: 0;
   width: 100%;
   position: relative;
-  z-index: 10;
   pointer-events: auto;
   overflow: hidden;
 }
 
 .folderChildren .guildRow {
-  padding-left: 16px;
-  height: 26px;
-  margin: 0 8px;
+  height: 32px;
+  padding-left: 24px;
+  margin: 1px 8px;
   width: calc(100% - 16px);
-  animation: slideIn 180ms cubic-bezier(0.25, 1, 0.5, 1) both;
+  animation: slideIn 150ms cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
-.folderChildren .guildRow:nth-child(1) { animation-delay: 0ms; }
-.folderChildren .guildRow:nth-child(2) { animation-delay: 20ms; }
-.folderChildren .guildRow:nth-child(3) { animation-delay: 35ms; }
-.folderChildren .guildRow:nth-child(4) { animation-delay: 45ms; }
-.folderChildren .guildRow:nth-child(n+5) { animation-delay: 50ms; }
+.folderChildren .guildLabel {
+  line-height: 32px;
+  font-size: 14px;
+}
 
 @keyframes slideIn {
   from {
@@ -252,12 +269,31 @@
   }
 }
 
-.folderDot {
-  display: none;
+/* Add Server pinned above the user panel, styled as a row button */
+.addServerBottom {
+  position: absolute;
+  bottom: 52px;
+  left: 8px;
+  right: 8px;
+  width: calc(100% - 16px) !important;
+  height: 34px;
+  margin: 0 !important;
+  border-radius: 6px !important;
+  background: inherit;
+  z-index: 20;
 }
 
-/* ── Folder internal hiding ── */
+:global(nav[aria-label="Servers sidebar"]) .guildRow:global([class*="circleIconButton"]) {
+  width: calc(100% - 16px) !important;
+  height: 34px !important;
+  border-radius: 6px !important;
+  background-color: transparent !important;
+  color: var(--interactive-normal, var(--channels-default, #4e5058)) !important;
+  justify-content: flex-start !important;
+  padding: 0 12px !important;
+}
 
+/* visually removed but kept in the layout for measurement/interaction */
 .folderItemsHidden,
 .folderHeaderHidden,
 .folderButtonHidden {
@@ -271,15 +307,13 @@
 
 .folderBgHidden,
 .folderOpenWrapperHidden {
-  pointer-events: none;
+  display: none !important;
 }
-
-/* ── Separators ── */
 
 .separator {
   width: calc(100% - 24px);
   box-sizing: border-box;
-  margin: 4px 12px;
+  margin: 6px 12px;
   padding: 0;
   cursor: grab;
 }
@@ -291,10 +325,8 @@
 .separatorLine {
   height: 1px;
   width: 100%;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--background-modifier-accent, rgba(0, 0, 0, 0.06));
 }
-
-/* ── Context menu ── */
 
 .rootMenu {
   position: fixed;
@@ -302,14 +334,14 @@
   min-width: 180px;
   background: var(--background-floating, #fff);
   color: var(--text-normal, #313338);
-  border: 0.5px solid rgba(0, 0, 0, 0.08);
-  border-radius: 6px;
+  border: 0.5px solid var(--border-subtle, var(--background-modifier-accent, rgba(0, 0, 0, 0.08)));
+  border-radius: 8px;
   box-shadow:
     0 0 0 0.5px rgba(0, 0, 0, 0.05),
     0 2px 4px rgba(0, 0, 0, 0.04),
     0 4px 12px rgba(0, 0, 0, 0.08);
   padding: 4px;
-  font-size: 13px;
+  font-size: 14px;
   animation: menuIn 125ms cubic-bezier(0.25, 1, 0.5, 1);
   transform-origin: top left;
 }
@@ -333,18 +365,16 @@
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   transition: background-color 100ms ease;
 }
 
 .rootMenuButton:hover {
-  background-color: rgba(0, 0, 0, 0.06);
+  background-color: var(--background-modifier-hover, rgba(0, 0, 0, 0.06));
 }
-
-/* ── Accessibility ── */
 
 @media (prefers-reduced-motion: reduce) {
   .guildRow,
@@ -352,6 +382,7 @@
   .folderLabel,
   .rootMenu,
   .rootMenuButton,
+  .guildRow::before,
   .resizeHandle::after {
     transition: none;
     animation: none;

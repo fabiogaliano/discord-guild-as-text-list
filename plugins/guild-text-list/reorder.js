@@ -118,12 +118,35 @@ export const applyStoredRootOrder = (store) => {
 
   const children = Array.from(rootContainer.children);
   const byKey = new Map();
+  const presentKeys = [];
   const unknown = [];
 
   for (const child of children) {
     const key = getKeyForRootChild(child);
     if (!key) continue;
+    presentKeys.push(key);
     if (!byKey.has(key)) byKey.set(key, child);
+  }
+
+  // Skip the re-append (and its full-list reflow) when the DOM already matches
+  // the saved order. A plain guild switch never reorders the list, so this
+  // turns the per-switch cost from "move every row" into "compare keys".
+  const presentSet = new Set(presentKeys);
+  const allSeparatorsExist = desired.every(
+    (k) => typeof k !== "string" || !k.startsWith("s:") || presentSet.has(k),
+  );
+  if (allSeparatorsExist) {
+    const desiredPresent = desired.filter(
+      (k) => typeof k === "string" && (k.startsWith("s:") || byKey.has(k)),
+    );
+    const presentInDesired = presentKeys.filter((k) => desiredSet.has(k));
+    const alreadyOrdered =
+      desiredPresent.length === presentInDesired.length &&
+      desiredPresent.every((k, i) => k === presentInDesired[i]);
+    if (alreadyOrdered) {
+      isApplyingOrder = false;
+      return;
+    }
   }
 
   for (const key of desired) {

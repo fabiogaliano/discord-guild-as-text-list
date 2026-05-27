@@ -54,7 +54,15 @@ const getFolderGuildsFromDom = (folderGroup, folderId) => {
 
     const dnd = treeitem.closest("[data-dnd-name]");
     const name = normalizeText(dnd?.getAttribute?.("data-dnd-name"));
-    guilds.push({ id: guildId, name });
+
+    // reuse Discord's own indicators from the original (hidden) blob — the
+    // same pill signal the root rows detect via :has() in CSS
+    const scope = treeitem.closest('[class*="listItem"]') || treeitem.parentElement || treeitem;
+    const unread = !!scope.querySelector('[class*="pill"]');
+    const badgeEl = scope.querySelector('[class*="numberBadge"]');
+    const mentions = badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0;
+
+    guilds.push({ id: guildId, name, unread, mentions });
   }
 
   return guilds;
@@ -78,7 +86,7 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
   container.replaceChildren();
 
   const guilds = getFolderGuildsFromDom(folderGroup, folderId);
-  for (const { id: gid, name: domName } of guilds) {
+  for (const { id: gid, name: domName, unread, mentions } of guilds) {
     const name = GuildStore?.getGuild?.(gid)?.name || domName || gid;
 
     const row = document.createElement("div");
@@ -86,6 +94,7 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "-1");
     row.setAttribute("data-guild-id", gid);
+    if (unread) row.setAttribute("data-gtl-unread", "true");
     row.style.cursor = "pointer";
 
     // check if this guild is currently selected
@@ -94,15 +103,18 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
       row.setAttribute("data-is-selected", "true");
     }
 
-    const dot = document.createElement("span");
-    dot.className = styles.folderDot;
-    row.append(dot);
-
     const label = document.createElement("div");
     label.className = styles.guildLabel;
     label.textContent = name;
     label.setAttribute("title", name);
     row.append(label);
+
+    if (mentions > 0) {
+      const badge = document.createElement("div");
+      badge.className = styles.mentionBadge;
+      badge.textContent = mentions > 99 ? "99+" : String(mentions);
+      row.append(badge);
+    }
 
     row.addEventListener(
       "click",
