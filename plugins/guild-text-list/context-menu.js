@@ -19,7 +19,9 @@ export const openRootMenu = (x, y, items) => {
   for (const item of items) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = styles.rootMenuButton;
+    btn.className = item.danger
+      ? `${styles.rootMenuButton} ${styles.rootMenuDanger}`
+      : styles.rootMenuButton;
     btn.textContent = item.label;
     btn.addEventListener("click", () => {
       item.onClick();

@@ -14,34 +14,6 @@ export const isFolderButton = (elem) =>
   (elem.getAttribute("aria-owns")?.startsWith("folder-items-") ||
     elem.closest('[class*="folderHeader"]'));
 
-export const extractBgUrl = (style) => {
-  if (!style) return "";
-  const match = /background-image\s*:\s*url\((['"]?)(.*?)\1\)/i.exec(style);
-  return match?.[2] ?? "";
-};
-
-export const findGuildIconNode = (elem) => {
-  const img = elem.querySelector("img");
-  if (img?.src && img.src.includes("/icons/")) {
-    const node = img.closest("span") || img;
-    return { node, previousDisplay: node.style.display ?? "" };
-  }
-
-  const bg = elem.querySelector("[style*='background-image']");
-  const url = extractBgUrl(bg?.getAttribute("style"));
-  if (bg && url.includes("/icons/")) {
-    return { node: bg, previousDisplay: bg.style.display ?? "" };
-  }
-
-  return null;
-};
-
-export const extractGuildIdFromIconUrl = (url) => {
-  if (!url) return null;
-  const match = /\/icons\/(\d+)\//.exec(url);
-  return match?.[1] ?? null;
-};
-
 export const normalizeFolderName = (value) => {
   if (!value) return "";
   const [name] = value.split(",");

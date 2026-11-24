@@ -1,9 +1,29 @@
+/* Discord renamed its theme variables (e.g. --interactive-normal became
+   --interactive-text-default); the old names are unset in current builds, so
+   anything relying on them fell through to light-theme hex fallbacks and broke
+   dark mode. One token layer: new name first, old name for older builds. */
+/* re-declared on the nav so the tokens resolve against its own theme class */
+:global(:root),
+:global(nav[aria-label="Servers sidebar"]) {
+  --gtl-fg: var(--interactive-text-default, var(--interactive-normal, #4e5058));
+  --gtl-fg-muted: var(--channels-default, var(--text-muted, #6d6f78));
+  --gtl-fg-hover: var(--interactive-text-hover, var(--interactive-hover, #2e3338));
+  --gtl-fg-strong: var(--interactive-text-active, var(--interactive-active, #060607));
+  --gtl-bg: var(--background-base-lower, var(--background-secondary, #f2f3f5));
+  --gtl-bg-hover: var(--background-mod-subtle, var(--background-modifier-hover, rgba(0, 0, 0, 0.04)));
+  --gtl-bg-selected: var(--background-mod-normal, var(--background-modifier-selected, rgba(0, 0, 0, 0.08)));
+  --gtl-bg-floating: var(--background-surface-higher, var(--background-floating, #fff));
+  --gtl-border: var(--border-subtle, var(--background-modifier-accent, rgba(0, 0, 0, 0.06)));
+  --gtl-accent: var(--brand-500, #5865f2);
+  --gtl-danger: var(--status-danger, #d83a42);
+}
+
 .sidebar {
   width: var(--guild-text-w, 220px);
   min-width: 140px;
   max-width: 380px;
   position: relative;
-  background: var(--bg-base-secondary, var(--background-secondary, #f2f3f5));
+  background: var(--gtl-bg);
   display: flex;
   flex-direction: column;
 }
@@ -19,14 +39,24 @@
   display: none !important;
 }
 
-/* reserve space so the last rows scroll clear of the pinned Add Server
-   instead of sliding underneath it */
-.sidebar [role="group"][aria-label="Servers"] {
-  padding-bottom: 48px;
-}
-
 .hiddenItem {
   display: none !important;
+}
+
+/* the original icon stays in the tree (focusable, clickable via JS) but is
+   invisible and lets pointer events fall through to the text row */
+.iconHidden {
+  position: absolute !important;
+  inset: 0;
+  opacity: 0 !important;
+  overflow: hidden;
+  pointer-events: none !important;
+}
+
+/* keyboard focus lands on the invisible treeitem inside the row */
+.guildRow:has(:focus-visible) {
+  outline: 2px solid var(--gtl-accent);
+  outline-offset: -2px;
 }
 
 :global(nav[aria-label="Servers sidebar"]) :global(div[class*="listItem"]):has([data-list-item-id="guildsnav___guild-discover-button"]),
@@ -36,10 +66,56 @@
   display: none !important;
 }
 
-/* unread "pill" can sit just outside the row element, so hide it nav-wide;
-   we re-derive unread state from its presence via :has() below */
+/* Discord's unread pill is the first aria-hidden child of each list item
+   (hashed classes like "wrapper__o8_Xq", no "pill" in the name anymore);
+   read-state.js mirrors its state onto the row as data-gtl-unread */
+:global(nav[aria-label="Servers sidebar"]) :global(div[class*="listItem_"]) > div[aria-hidden="true"]:first-child,
 :global(nav[aria-label="Servers sidebar"]) [class*="pill"] {
   display: none !important;
+}
+
+/* the old 32px centered rule reads as an icon-rail artifact in a text list */
+:global(nav[aria-label="Servers sidebar"]) [class*="guildSeparator"] {
+  align-self: stretch;
+  width: calc(100% - 32px) !important;
+  height: 1px !important;
+  margin: 6px 16px !important;
+  background: var(--gtl-border) !important;
+}
+
+/* Vencord's ReadAllNotificationsButton: demote to a quiet secondary row so it
+   doesn't compete with DMs and the servers below */
+:global(nav[aria-label="Servers sidebar"] .vc-ranb-button) {
+  align-self: stretch;
+  width: calc(100% - 16px) !important;
+  height: 28px;
+  margin: 0 8px 2px !important;
+  padding: 0 12px 0 26px !important;
+  border-radius: 6px;
+  background: none !important;
+  color: var(--gtl-fg-muted) !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  justify-content: flex-start !important;
+  text-align: left;
+  cursor: pointer;
+}
+
+:global(nav[aria-label="Servers sidebar"] .vc-ranb-button:hover) {
+  background-color: var(--gtl-bg-hover) !important;
+  color: var(--gtl-fg-hover) !important;
+}
+
+/* "new unreads above/below" jump bars: a compact chip instead of a full-width slab */
+:global(nav[aria-label="Servers sidebar"]) [class*="unreadMentionsBar"] {
+  width: fit-content !important;
+  min-width: 0 !important;
+  height: 20px !important;
+  margin: 0 auto !important;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+  font-size: 11px !important;
+  line-height: 20px !important;
 }
 
 .resizeHandle {
@@ -60,7 +136,7 @@
   width: 2px;
   height: 100%;
   border-radius: 1px;
-  background: var(--brand-500, #5865f2);
+  background: var(--gtl-accent);
   opacity: 0;
   transition: opacity 150ms ease;
 }
@@ -73,29 +149,35 @@
 .guildRow {
   width: calc(100% - 16px);
   box-sizing: border-box;
-  height: 34px;
+  height: 32px;
   margin: 1px 8px;
   padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 8px;
   border-radius: 6px;
-  color: var(--interactive-normal, var(--channels-default, #4e5058));
+  color: var(--gtl-fg);
   cursor: pointer;
   position: relative;
 }
 
 /* Discord semantic vars resolve per-theme; rgba fallbacks are tuned for light */
+.guildRow {
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
 .guildRow:hover {
-  background-color: var(--background-modifier-hover, rgba(0, 0, 0, 0.04));
-  color: var(--interactive-hover, var(--text-normal, #2e3338));
+  background-color: var(--gtl-bg-hover);
+  color: var(--gtl-fg-hover);
 }
 
 /* selection mirrors the Settings sidebar: a calm filled rounded rect, no bar */
+/* Discord puts aria-selected on the inner treeitem, not on the row we style */
+.guildRow:not(.folderRow):has([role="treeitem"][aria-selected="true"]),
 .guildRow[aria-selected="true"],
 .guildRow[data-is-selected="true"] {
-  background-color: var(--background-modifier-selected, rgba(0, 0, 0, 0.08));
-  color: var(--interactive-active, var(--header-primary, #060607));
+  background-color: var(--gtl-bg-selected);
+  color: var(--gtl-fg-strong);
 }
 
 /* reserved leading slot keeps every label aligned whether read or unread */
@@ -105,7 +187,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--brand-500, #5865f2);
+  background: var(--gtl-accent);
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -114,22 +196,27 @@
   display: none;
 }
 
-/* a present pill element means unread → reveal dot and darken the label */
-.guildRow:has([class*="pill"])::before {
-  opacity: 1;
-}
-
-.guildRow:has([class*="pill"]) .guildLabel {
-  color: var(--interactive-active, var(--header-primary, #060607));
-}
-
-/* folder children are custom-rendered without a pill, so JS flags unread/mentions */
 .guildRow[data-gtl-unread="true"]::before {
   opacity: 1;
 }
 
+/* unread = brighter + heavier label, the same cue Discord's channel list uses */
 .guildRow[data-gtl-unread="true"] .guildLabel {
-  color: var(--interactive-active, var(--header-primary, #060607));
+  color: var(--gtl-fg-strong);
+  font-weight: 600;
+}
+
+/* a collapsed folder carries its children's unread state on the header */
+.folderRow[data-gtl-unread="true"] .folderLabel {
+  color: var(--gtl-fg-strong);
+}
+
+.folderExpanded[data-gtl-unread="true"] .folderLabel {
+  color: var(--gtl-fg-muted);
+}
+
+.folderExpanded > .mentionBadge {
+  display: none;
 }
 
 .mentionBadge {
@@ -138,7 +225,7 @@
   height: 16px;
   padding: 0 5px;
   border-radius: 8px;
-  background: var(--status-danger, #d83a42);
+  background: var(--gtl-danger);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -146,20 +233,9 @@
   text-align: center;
 }
 
-.guildRow [class*="numberBadge"],
-.guildRow [class*="badge"] {
-  font-size: 10px;
-  min-width: 16px;
-  height: 16px;
-  line-height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
 .guildLabel {
-  font-size: 15px;
-  line-height: 34px;
+  font-size: 14px;
+  line-height: 32px;
   font-weight: 500;
   color: inherit;
   flex: 1;
@@ -183,7 +259,7 @@
   min-height: 24px;
   margin: 8px 8px 2px;
   padding: 14px 4px 2px;
-  border-top: 1px solid var(--background-modifier-accent, rgba(0, 0, 0, 0.06));
+  border-top: 1px solid var(--gtl-border);
   border-radius: 0;
   background: none;
   display: flex;
@@ -198,12 +274,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.2;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--channels-default, var(--text-muted, #6d6f78));
+  color: var(--gtl-fg-muted);
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -217,7 +293,7 @@
 }
 
 .folderRow:hover .folderLabel {
-  color: var(--text-normal, #2e3338);
+  color: var(--gtl-fg-hover);
 }
 
 .folderCaret {
@@ -246,7 +322,7 @@
 }
 
 .folderChildren .guildRow {
-  height: 32px;
+  height: 30px;
   padding-left: 24px;
   margin: 1px 8px;
   width: calc(100% - 16px);
@@ -254,7 +330,7 @@
 }
 
 .folderChildren .guildLabel {
-  line-height: 32px;
+  line-height: 30px;
   font-size: 14px;
 }
 
@@ -270,25 +346,26 @@
 }
 
 /* Add Server pinned above the user panel, styled as a row button */
+/* in-flow footer: margin-top:auto pins it to the bottom of the flex column,
+   so the scroller sits above it instead of the button floating over the list */
 .addServerBottom {
-  position: absolute;
-  bottom: 52px;
-  left: 8px;
-  right: 8px;
-  width: calc(100% - 16px) !important;
-  height: 34px;
-  margin: 0 !important;
-  border-radius: 6px !important;
-  background: inherit;
-  z-index: 20;
+  position: relative;
+  flex-shrink: 0;
+  margin: auto 0 0 0 !important;
+  width: 100% !important;
+  height: 44px;
+  padding: 0 12px;
+  border-top: 1px solid var(--gtl-border);
+  border-radius: 0 !important;
+  background: var(--gtl-bg);
 }
 
 :global(nav[aria-label="Servers sidebar"]) .guildRow:global([class*="circleIconButton"]) {
   width: calc(100% - 16px) !important;
-  height: 34px !important;
+  height: 32px !important;
   border-radius: 6px !important;
   background-color: transparent !important;
-  color: var(--interactive-normal, var(--channels-default, #4e5058)) !important;
+  color: var(--gtl-fg) !important;
   justify-content: flex-start !important;
   padding: 0 12px !important;
 }
@@ -322,19 +399,68 @@
   cursor: grabbing;
 }
 
+.separatorNew {
+  animation: separatorIn 220ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes separatorIn {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+/* the row being dragged lifts off the list; everything else stops reacting
+   to hover so the only moving highlight is the one under the pointer */
+.dragging {
+  position: relative;
+  z-index: 10;
+  background-color: var(--gtl-bg-floating) !important;
+  color: var(--gtl-fg-strong) !important;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--gtl-border),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: grabbing !important;
+}
+
+.separator.dragging {
+  background: none !important;
+  box-shadow: none;
+}
+
+.separator.dragging .separatorLine {
+  height: 2px;
+  background: var(--gtl-accent);
+}
+
+.dragActive,
+.dragActive * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.dragActive .guildRow:not(.dragging):hover {
+  background-color: transparent;
+}
+
 .separatorLine {
   height: 1px;
   width: 100%;
-  background: var(--background-modifier-accent, rgba(0, 0, 0, 0.06));
+  background: var(--gtl-border);
 }
 
 .rootMenu {
   position: fixed;
   z-index: 999999;
   min-width: 180px;
-  background: var(--background-floating, #fff);
-  color: var(--text-normal, #313338);
-  border: 0.5px solid var(--border-subtle, var(--background-modifier-accent, rgba(0, 0, 0, 0.08)));
+  background: var(--gtl-bg-floating);
+  color: var(--gtl-fg-hover);
+  border: 0.5px solid var(--gtl-border);
   border-radius: 8px;
   box-shadow:
     0 0 0 0.5px rgba(0, 0, 0, 0.05),
@@ -373,7 +499,16 @@
 }
 
 .rootMenuButton:hover {
-  background-color: var(--background-modifier-hover, rgba(0, 0, 0, 0.06));
+  background-color: var(--gtl-bg-hover);
+}
+
+.rootMenuDanger {
+  color: var(--gtl-danger);
+}
+
+.rootMenuDanger:hover {
+  background-color: var(--gtl-danger);
+  color: #fff;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -382,6 +517,7 @@
   .folderLabel,
   .rootMenu,
   .rootMenuButton,
+  .separatorNew,
   .guildRow::before,
   .resizeHandle::after {
     transition: none;

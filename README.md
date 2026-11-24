@@ -10,7 +10,7 @@
 2. Turn **off** the "Local plugin" toggle
 3. Paste the URL:
    ```
-   https://raw.githubusercontent.com/fabiogaliano/guild-text-list/gh-pages/guild-text-list/
+   https://raw.githubusercontent.com/fabiogaliano/discord-guild-as-text-list/gh-pages/guild-text-list/
    ```
 4. Click **Add**
 

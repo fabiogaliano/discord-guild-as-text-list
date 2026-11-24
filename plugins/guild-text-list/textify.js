@@ -1,13 +1,47 @@
 import styles from "./styles.module.css";
-import { isExcluded, HIDDEN_ITEMS, SPECIAL_ITEMS } from "./selectors.js";
+import { scheduleReadStateSync } from "./read-state.js";
+import { isExcluded, HIDDEN_ITEMS, SPECIAL_ITEMS, LIST_ITEM } from "./selectors.js";
 import {
   getGuildName,
   isFolderButton,
-  findGuildIconNode,
   normalizeFolderName,
   normalizeText,
   getFolderId,
 } from "./dom-utils.js";
+
+// The DOM observer stays live, so every write here must be a no-op when the
+// value is already set: classList.add/setAttribute still emit a mutation record
+// for unchanged values, which would re-enter the observer forever.
+const addClass = (el, cls) => {
+  if (!el.classList.contains(cls)) el.classList.add(cls);
+};
+const toggleClass = (el, cls, on) => {
+  if (el.classList.contains(cls) !== on) el.classList.toggle(cls, on);
+};
+const setText = (el, text) => {
+  if (el.textContent !== text) el.textContent = text;
+};
+const setAttr = (el, name, value) => {
+  if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+};
+
+// Discord opens its guild menu from the original (hidden) treeitem, so replay
+// the right-click there at the pointer position
+const forwardContextMenu = (target, event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+    }),
+  );
+};
 
 const processed = new Map();
 const processedFolders = new Map();
@@ -55,14 +89,7 @@ const getFolderGuildsFromDom = (folderGroup, folderId) => {
     const dnd = treeitem.closest("[data-dnd-name]");
     const name = normalizeText(dnd?.getAttribute?.("data-dnd-name"));
 
-    // reuse Discord's own indicators from the original (hidden) blob — the
-    // same pill signal the root rows detect via :has() in CSS
-    const scope = treeitem.closest('[class*="listItem"]') || treeitem.parentElement || treeitem;
-    const unread = !!scope.querySelector('[class*="pill"]');
-    const badgeEl = scope.querySelector('[class*="numberBadge"]');
-    const mentions = badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0;
-
-    guilds.push({ id: guildId, name, unread, mentions });
+    guilds.push({ id: guildId, name });
   }
 
   return guilds;
@@ -86,7 +113,7 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
   container.replaceChildren();
 
   const guilds = getFolderGuildsFromDom(folderGroup, folderId);
-  for (const { id: gid, name: domName, unread, mentions } of guilds) {
+  for (const { id: gid, name: domName } of guilds) {
     const name = GuildStore?.getGuild?.(gid)?.name || domName || gid;
 
     const row = document.createElement("div");
@@ -94,7 +121,6 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "-1");
     row.setAttribute("data-guild-id", gid);
-    if (unread) row.setAttribute("data-gtl-unread", "true");
     row.style.cursor = "pointer";
 
     // check if this guild is currently selected
@@ -109,12 +135,9 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
     label.setAttribute("title", name);
     row.append(label);
 
-    if (mentions > 0) {
-      const badge = document.createElement("div");
-      badge.className = styles.mentionBadge;
-      badge.textContent = mentions > 99 ? "99+" : String(mentions);
-      row.append(badge);
-    }
+    const findOriginal = () =>
+      folderGroup.querySelector(`[data-list-item-id='guildsnav___${gid}']`) ||
+      document.querySelector(`[data-list-item-id='guildsnav___${gid}']`);
 
     row.addEventListener(
       "click",
@@ -128,18 +151,21 @@ const renderFolderChildren = (folderGroup, folderId, GuildStore) => {
         }
         row.setAttribute("data-is-selected", "true");
 
-        const target =
-          folderGroup.querySelector(
-            `[data-list-item-id='guildsnav___${gid}']`,
-          ) ||
-          document.querySelector(`[data-list-item-id='guildsnav___${gid}']`);
+        const target = findOriginal();
         if (target instanceof HTMLElement) target.click();
       },
       true,
     );
 
+    row.addEventListener("contextmenu", (event) => {
+      if (event.shiftKey) return; // shift+right-click is the plugin's own menu
+      const target = findOriginal();
+      if (target instanceof HTMLElement) forwardContextMenu(target, event);
+    });
+
     container.append(row);
   }
+  scheduleReadStateSync();
 };
 
 export const textifyGuild = (elem) => {
@@ -150,33 +176,28 @@ export const textifyGuild = (elem) => {
   const suffix = listItemId?.slice("guildsnav___".length) ?? "";
 
   if (HIDDEN_ITEMS.has(suffix)) {
-    const listItem = elem.closest('div[class*="listItem"]') || elem;
-    listItem.classList.add(styles.hiddenItem);
+    const listItem = elem.closest(LIST_ITEM) || elem.closest('div[class*="listItem"]') || elem;
+    addClass(listItem, styles.hiddenItem);
     return;
   }
 
   if (isExcluded(listItemId)) return;
 
   const isSpecial = SPECIAL_ITEMS.has(suffix);
-  const icon = findGuildIconNode(elem);
-
-  if (!isSpecial && !icon?.node) return;
 
   const name = isSpecial ? SPECIAL_ITEMS.get(suffix) : getGuildName(elem);
   if (!name) return;
 
-  const listItemWrap = elem.closest('div[class*="listItem"]');
+  const listItemWrap = elem.closest(LIST_ITEM) || elem.closest('div[class*="listItem"]');
   const listItem = listItemWrap || elem;
 
-  if (!listItem.classList.contains(styles.guildRow)) {
-    listItem.classList.add(styles.guildRow);
-  }
+  addClass(listItem, styles.guildRow);
 
   // for special items without a listItem wrapper (Add Server, etc),
   // hide all original children and override Discord's circle styling
   if (isSpecial && !listItemWrap) {
     for (const child of Array.from(elem.children)) {
-      if (!child.classList.contains(styles.guildLabel)) {
+      if (!child.classList.contains(styles.guildLabel) && child.style.display !== "none") {
         child.style.display = "none";
       }
     }
@@ -184,7 +205,7 @@ export const textifyGuild = (elem) => {
 
   // pin Add Server: hide original, create a fixed-bottom clone
   if (suffix === "create-join-button") {
-    listItem.classList.add(styles.hiddenItem);
+    addClass(listItem, styles.hiddenItem);
 
     const nav = elem.closest('nav[aria-label="Servers sidebar"]');
     if (nav && !nav.querySelector(`.${styles.addServerBottom}`)) {
@@ -211,22 +232,23 @@ export const textifyGuild = (elem) => {
     listItem.append(label);
   }
 
-  label.textContent = name;
-  label.setAttribute("title", name);
+  setText(label, name);
+  setAttr(label, "title", name);
+  if (/^[0-9]+$/.test(suffix)) setAttr(listItem, "data-guild-id", suffix);
 
   if (!processed.has(listItem)) {
-    // hide the icon/logo but preserve badge/pill elements
-    let iconNode = icon?.node;
-    if (!iconNode && listItemWrap) {
-      const wrapper = elem.querySelector('[class*="childWrapper"], [class*="listItemWrapper"]');
-      if (wrapper) {
-        iconNode = wrapper;
-      } else {
-        iconNode = elem.querySelector('svg:not([class*="badge"])');
+    // hide the row's whole icon subtree (the direct child holding the treeitem);
+    // waiting for an <img> skipped acronym servers and icons still loading
+    let iconNode = null;
+    if (listItemWrap) {
+      iconNode = elem;
+      while (iconNode.parentElement && iconNode.parentElement !== listItem) {
+        iconNode = iconNode.parentElement;
       }
     }
-    const previousDisplay = iconNode?.style?.display ?? "";
-    if (iconNode) iconNode.style.display = "none";
+    // invisible but still rendered: display:none would make the treeitem
+    // unfocusable and break Discord's arrow-key navigation of the list
+    if (iconNode) iconNode.classList.add(styles.iconHidden);
 
     // special items without wrapper: clicking the label should trigger the original element
     const handleClick = isSpecial && !listItemWrap ? null : (event) => {
@@ -238,28 +260,13 @@ export const textifyGuild = (elem) => {
     const handleContextMenu = (event) => {
       if (event.defaultPrevented) return;
       if (event.target instanceof Node && elem.contains(event.target)) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      elem.dispatchEvent(
-        new MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          screenX: event.screenX,
-          screenY: event.screenY,
-        }),
-      );
+      forwardContextMenu(elem, event);
     };
 
     if (handleClick) listItem.addEventListener("click", handleClick);
     listItem.addEventListener("contextmenu", handleContextMenu);
     processed.set(listItem, {
       iconNode,
-      previousDisplay,
       isSpecialNoWrap: isSpecial && !listItemWrap,
       handleClick,
       handleContextMenu,
@@ -278,24 +285,22 @@ export const textifyFolder = (elem, { observeDom, GuildStore }) => {
   );
   if (!name) return;
 
-  const listItem = elem.closest('div[class*="listItem"]') || elem;
+  const listItem = elem.closest(LIST_ITEM) || elem.closest('div[class*="listItem"]') || elem;
   const folderGroup = elem.closest('[class*="folderGroup"]');
   const folderId = getFolderId(elem);
   if (!folderGroup || !folderId) return;
 
-  if (!listItem.classList.contains(styles.folderRow)) {
-    listItem.classList.add(styles.folderRow);
-  }
-  if (!listItem.classList.contains(styles.guildRow)) {
-    listItem.classList.add(styles.guildRow);
-  }
-  elem.classList.add(styles.folderButtonHidden);
-
-  const expanded = elem.getAttribute("aria-expanded");
-  if (expanded === "true") {
-    listItem.classList.add(styles.folderExpanded);
-  } else {
-    listItem.classList.remove(styles.folderExpanded);
+  addClass(listItem, styles.folderRow);
+  addClass(listItem, styles.guildRow);
+  addClass(elem, styles.folderButtonHidden);
+  const isExpanded = elem.getAttribute("aria-expanded") === "true";
+  toggleClass(listItem, styles.folderExpanded, isExpanded);
+  // folders already open at startup never get a toggle click, so render here too
+  const hasChildren = !!folderGroup.querySelector(`.${styles.folderChildren}`);
+  if (isExpanded && !hasChildren) {
+    queueMicrotask(() => renderFolderChildren(folderGroup, folderId, GuildStore));
+  } else if (!isExpanded && hasChildren) {
+    clearFolderChildren(folderGroup);
   }
 
   let label = listItem.querySelector(`.${styles.folderLabel}`);
@@ -316,8 +321,8 @@ export const textifyFolder = (elem, { observeDom, GuildStore }) => {
   }
 
   const textNode = label.querySelector(".shelter-folder-text");
-  if (textNode) textNode.textContent = name;
-  label.setAttribute("title", name);
+  if (textNode) setText(textNode, name);
+  setAttr(label, "title", name);
 
   if (!processedFolders.has(listItem)) {
     if (header) header.classList.add(styles.folderHeaderHidden);
@@ -384,7 +389,7 @@ export const cleanupGuilds = () => {
     if (label) label.remove();
 
     if (data?.iconNode) {
-      data.iconNode.style.display = data.previousDisplay;
+      data.iconNode.classList.remove(styles.iconHidden);
     }
 
     // restore hidden children for special items without wrapper
@@ -403,6 +408,7 @@ export const cleanupGuilds = () => {
 
     listItem.classList.remove(styles.guildRow);
     listItem.classList.remove(styles.hiddenItem);
+    listItem.removeAttribute("data-guild-id");
   }
   processed.clear();
 

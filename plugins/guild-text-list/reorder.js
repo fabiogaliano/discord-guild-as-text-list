@@ -23,9 +23,9 @@ const newSepId = () => {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-const createSeparator = (id) => {
+const createSeparator = (id, { animate = false } = {}) => {
   const el = document.createElement("div");
-  el.className = styles.separator;
+  el.className = animate ? `${styles.separator} ${styles.separatorNew}` : styles.separator;
   el.setAttribute("data-shelter-separator-id", id);
 
   const line = document.createElement("div");
@@ -192,25 +192,95 @@ const getRootDraggableNode = (target) => {
   return null;
 };
 
+const prefersReducedMotion = () =>
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+// FLIP: rows jump to their new slot in the DOM, then glide from where they
+// were, so the list visibly makes room for the dragged row instead of snapping
+const animateShift = (mutate) => {
+  if (prefersReducedMotion()) return mutate();
+  const kids = Array.from(rootContainer.children).filter((el) => el !== dragNode);
+  const before = new Map(kids.map((el) => [el, el.getBoundingClientRect().top]));
+  mutate();
+  for (const el of kids) {
+    const delta = before.get(el) - el.getBoundingClientRect().top;
+    if (!delta) continue;
+    el.style.transition = "none";
+    el.style.transform = `translateY(${delta}px)`;
+    el.getBoundingClientRect();
+    el.style.transition = "transform 160ms cubic-bezier(0.25, 1, 0.5, 1)";
+    el.style.transform = "";
+    el.addEventListener("transitionend", () => (el.style.transition = ""), { once: true });
+  }
+};
+
+// hit-test against layout positions, not painted ones: rows mid-FLIP are
+// visually offset, and testing their painted rect makes the drop slot flicker
+const layoutRect = (el) => {
+  const r = el.getBoundingClientRect();
+  const t = getComputedStyle(el).transform;
+  const dy = t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0;
+  return { top: r.top - dy, height: r.height };
+};
+
 const reorderOnPointer = (clientY) => {
   if (!(rootContainer instanceof HTMLElement)) return;
   if (!(dragNode instanceof HTMLElement)) return;
 
-  const over = document.elementFromPoint(8, clientY);
-  const overNode = getRootDraggableNode(over);
-  if (!overNode || overNode === dragNode) return;
-  if (overNode.parentElement !== rootContainer) return;
-
-  const rect = overNode.getBoundingClientRect();
-  const before = clientY < rect.top + rect.height / 2;
-  if (before) {
-    rootContainer.insertBefore(dragNode, overNode);
-  } else {
-    rootContainer.insertBefore(dragNode, overNode.nextSibling);
+  let overNode = null;
+  for (const child of rootContainer.children) {
+    if (child === dragNode || !getKeyForRootChild(child)) continue;
+    const r = layoutRect(child);
+    if (r.height && clientY >= r.top && clientY < r.top + r.height) {
+      overNode = child;
+      break;
+    }
   }
+  if (!overNode) return;
+
+  const r = layoutRect(overNode);
+  const ref = clientY < r.top + r.height / 2 ? overNode : overNode.nextSibling;
+  if (ref === dragNode || dragNode.nextSibling === ref) return;
+  animateShift(() => rootContainer.insertBefore(dragNode, ref));
 };
 
+// the pointerup that ends a drag also fires a click on the row, which would
+// navigate to that server; swallow exactly that one click
+const suppressNextClick = () => {
+  const swallow = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  window.addEventListener("click", swallow, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+};
+
+const EDGE = 48; // px from the scroller edge where auto-scroll kicks in
+const MAX_SPEED = 14; // px per frame at the very edge
+
 export const setupDragAndContextMenu = (store) => {
+  let lastY = 0;
+  let origNext = null; // where the row sat before the drag, for Esc
+  let scrollFrame = 0;
+
+  // while a drag is held near the top/bottom edge, scroll the list and keep
+  // re-targeting the drop slot, so rows outside the viewport are reachable
+  const autoScrollTick = () => {
+    scrollFrame = 0;
+    if (!isDragging || !didDrag) return;
+    const scroller = rootContainer?.closest('[class*="scroller"]');
+    if (!scroller) return;
+    const r = scroller.getBoundingClientRect();
+    let speed = 0;
+    if (lastY < r.top + EDGE) speed = -MAX_SPEED * Math.min(1, (r.top + EDGE - lastY) / EDGE);
+    else if (lastY > r.bottom - EDGE) speed = MAX_SPEED * Math.min(1, (lastY - (r.bottom - EDGE)) / EDGE);
+    if (!speed) return;
+    const before = scroller.scrollTop;
+    scroller.scrollTop += speed;
+    if (scroller.scrollTop !== before) reorderOnPointer(lastY);
+    scrollFrame = requestAnimationFrame(autoScrollTick);
+  };
+
   const onPointerDown = (event) => {
     if (event.button !== 0) return;
     const node = getRootDraggableNode(event.target);
@@ -231,11 +301,14 @@ export const setupDragAndContextMenu = (store) => {
     const dx = Math.abs(event.clientX - dragStart.x);
     const dy = Math.abs(event.clientY - dragStart.y);
     if (!didDrag && dx + dy < 6) return;
+    if (!didDrag) origNext = dragNode?.nextSibling ?? null;
     didDrag = true;
+    lastY = event.clientY;
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(autoScrollTick);
 
-    if (dragNode instanceof HTMLElement) {
-      dragNode.style.opacity = "0.7";
-      dragNode.style.userSelect = "none";
+    if (dragNode instanceof HTMLElement && !dragNode.classList.contains(styles.dragging)) {
+      dragNode.classList.add(styles.dragging);
+      document.body.classList.add(styles.dragActive);
     }
 
     if (rafPending) return;
@@ -246,13 +319,21 @@ export const setupDragAndContextMenu = (store) => {
     });
   };
 
-  const endDrag = () => {
+  const endDrag = ({ cancel = false } = {}) => {
     if (!isDragging) return;
-    if (dragNode instanceof HTMLElement) {
-      dragNode.style.opacity = "";
-      dragNode.style.userSelect = "";
+    if (scrollFrame) cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
+    if (dragNode instanceof HTMLElement) dragNode.classList.remove(styles.dragging);
+    document.body.classList.remove(styles.dragActive);
+    if (didDrag && cancel) {
+      if (dragNode && rootContainer && (!origNext || origNext.parentElement === rootContainer)) {
+        animateShift(() => rootContainer.insertBefore(dragNode, origNext));
+      }
+    } else if (didDrag) {
+      saveRootOrder(store);
     }
-    if (didDrag) saveRootOrder(store);
+    if (didDrag) suppressNextClick();
+    origNext = null;
 
     isDragging = false;
     dragNode = null;
@@ -280,6 +361,7 @@ export const setupDragAndContextMenu = (store) => {
             node.remove();
             saveRootOrder(store);
           },
+          danger: true,
         },
       ]);
       return;
@@ -290,7 +372,7 @@ export const setupDragAndContextMenu = (store) => {
         label: "Insert separator above",
         onClick: () => {
           const id = newSepId();
-          const sep = createSeparator(id);
+          const sep = createSeparator(id, { animate: true });
           rootContainer = rootContainer || getRootContainer();
           if (rootContainer) rootContainer.insertBefore(sep, node);
           saveRootOrder(store);
@@ -300,7 +382,7 @@ export const setupDragAndContextMenu = (store) => {
         label: "Insert separator below",
         onClick: () => {
           const id = newSepId();
-          const sep = createSeparator(id);
+          const sep = createSeparator(id, { animate: true });
           rootContainer = rootContainer || getRootContainer();
           if (rootContainer) rootContainer.insertBefore(sep, node.nextSibling);
           saveRootOrder(store);
@@ -311,16 +393,27 @@ export const setupDragAndContextMenu = (store) => {
 
   window.addEventListener("pointerdown", onPointerDown, true);
   window.addEventListener("pointermove", onPointerMove, true);
-  window.addEventListener("pointerup", endDrag, true);
-  window.addEventListener("pointercancel", endDrag, true);
+  const onPointerEnd = () => endDrag();
+  const onKeyDown = (event) => {
+    if (event.key !== "Escape" || !isDragging || !didDrag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    endDrag({ cancel: true });
+  };
+
+  window.addEventListener("pointerup", onPointerEnd, true);
+  window.addEventListener("pointercancel", onPointerEnd, true);
+  window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("contextmenu", onContextMenu, true);
 
   return () => {
     closeRootMenu();
     window.removeEventListener("pointerdown", onPointerDown, true);
     window.removeEventListener("pointermove", onPointerMove, true);
-    window.removeEventListener("pointerup", endDrag, true);
-    window.removeEventListener("pointercancel", endDrag, true);
+    window.removeEventListener("pointerup", onPointerEnd, true);
+    window.removeEventListener("pointercancel", onPointerEnd, true);
+    window.removeEventListener("keydown", onKeyDown, true);
+    if (scrollFrame) cancelAnimationFrame(scrollFrame);
     window.removeEventListener("contextmenu", onContextMenu, true);
   };
 };

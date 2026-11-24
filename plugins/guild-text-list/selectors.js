@@ -1,6 +1,9 @@
 export const NAV = 'nav[aria-label="Servers sidebar"]';
 export const GUILD_SELECTOR = `${NAV} [data-list-item-id^="guildsnav___"]`;
 export const FOLDER_SELECTOR = `${NAV} [role="treeitem"][aria-owns^="folder-items-"]`;
+// "listItem_" (with underscore) skips the nested "listItemWrapper_" Discord
+// renders inside the home (DMs) item, so we always style the outer row
+export const LIST_ITEM = 'div[class*="listItem_"]';
 export const ROOT_GROUP = `${NAV} [role="group"][aria-label="Servers"]`;
 
 export const HIDDEN_ITEMS = new Set([
